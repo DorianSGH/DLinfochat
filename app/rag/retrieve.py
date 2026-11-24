@@ -76,22 +76,25 @@ class Retriever:
     ) -> None:
         self.embedder = embedder
         self.sessionmaker = sessionmaker
-        self.candidates = candidates
+        self.candidate_limit = candidates
         self.top_k = top_k
         self.rrf_k = rrf_k
 
-    async def search(self, question: str) -> list[Source]:
+    async def candidates(self, question: str) -> tuple[list[int], list[int]]:
+        """Chunk ids from each method separately, best first: (semantic, keyword).
+
+        Exposed on its own so evals can score each method and the fusion on the same query.
+        """
         vector = await self.embedder.embed_query(question)
         tsquery = any_word_query(question)
-
-        # Session lives only for these three quick queries, so a chat request doesn't
+        # Sessions here live only for a few quick queries, so a chat request doesn't
         # hold a DB connection during the seconds it spends streaming the answer.
         async with self.sessionmaker() as session:
             semantic_ids = list(
                 await session.scalars(
                     select(Chunk.id)
                     .order_by(Chunk.embedding.cosine_distance(vector))  # <=> operator
-                    .limit(self.candidates)
+                    .limit(self.candidate_limit)
                 )
             )
             keyword_ids = list(
@@ -99,10 +102,15 @@ class Retriever:
                     select(Chunk.id)
                     .where(Chunk.search_vector.op("@@")(tsquery))  # uses the GIN index
                     .order_by(func.ts_rank(Chunk.search_vector, tsquery).desc())
-                    .limit(self.candidates)
+                    .limit(self.candidate_limit)
                 )
             )
-            fused = reciprocal_rank_fusion([semantic_ids, keyword_ids], self.rrf_k)[: self.top_k]
+        return semantic_ids, keyword_ids
+
+    async def search(self, question: str) -> list[Source]:
+        semantic_ids, keyword_ids = await self.candidates(question)
+        fused = reciprocal_rank_fusion([semantic_ids, keyword_ids], self.rrf_k)[: self.top_k]
+        async with self.sessionmaker() as session:
             rows = await session.execute(
                 select(Chunk.id, Chunk.section, Chunk.content, Page.title, Page.url)
                 .join(Chunk.page)

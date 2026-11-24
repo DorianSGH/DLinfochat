@@ -1,0 +1,12 @@
+{"id": "m-001", "question": "What is the cooldown of Abrams' Siphon Life?", "targets": [{"page": "Abrams", "section": "Abilities > Siphon Life"}], "source": "manual"}
+{"id": "m-002", "question": "How much health does Abrams have?", "targets": [{"page": "Abrams", "section": ""}], "source": "manual"}
+{"id": "m-003", "question": "How much does Cold Front cost and what does it do?", "targets": [{"page": "Cold Front", "section": ""}], "source": "manual"}
+{"id": "m-004", "question": "When does the midboss respawn?", "targets": [{"page": "Midboss", "section": "Respawn"}], "source": "manual"}
+{"id": "m-005", "question": "What happens to my haunted souls when I die?", "targets": [{"page": "Souls", "section": "Haunted Souls"}], "source": "manual"}
+{"id": "m-006", "question": "What does Healbane do?", "targets": [{"page": "Healbane", "section": ""}], "source": "manual"}
+{"id": "m-007", "question": "Which hero has the Luggage Cart ability?", "targets": [{"page": "The Doorman", "section": "Abilities > Luggage Cart"}], "source": "manual"}
+{"id": "m-008", "question": "how do i get money to buy items", "targets": [{"page": "Souls", "section": "Overview"}, {"page": "Souls", "section": ""}, {"page": "Deadlock", "section": "Gameplay"}], "source": "manual"}
+{"id": "m-009", "question": "how many souls do you get for killing the mid boss", "targets": [{"page": "Midboss", "section": "Death"}, {"page": "Souls", "section": "Soul Values"}], "source": "manual"}
+{"id": "m-010", "question": "can the other team steal our rejuvenator", "targets": [{"page": "Midboss", "section": "Death"}, {"page": "Rejuvenator", "section": null}], "source": "manual"}
+{"id": "m-011", "question": "how far does abrams shoulder charge go", "targets": [{"page": "Abrams", "section": "Abilities > Shoulder Charge"}], "source": "manual"}
+{"id": "m-012", "question": "what is the first blood bonus", "targets": [{"page": "Souls", "section": "Soul Values > First Blood bonus"}], "source": "manual"}
