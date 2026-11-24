@@ -7,7 +7,7 @@ setting); everything else only sees the Embedder / ChatModel protocols.
 import httpx
 
 from app.config import Settings
-from app.providers.base import ChatModel, Embedder
+from app.providers.base import ChatModel, Embedder, Reranker
 from app.providers.ollama import OllamaChat, OllamaEmbedder
 
 
@@ -23,6 +23,15 @@ def make_embedder(settings: Settings, client: httpx.AsyncClient) -> Embedder:
         settings.embed_dimensions,
         query_prefix=settings.embed_query_prefix,
     )
+
+
+def make_reranker(model_name: str) -> Reranker | None:
+    """None when no model is configured. Slow-ish (loads the model), call once at startup."""
+    if not model_name:
+        return None
+    from app.providers.cross_encoder import CrossEncoderReranker  # pulls in torch
+
+    return CrossEncoderReranker(model_name)
 
 
 def make_chat_model(settings: Settings, client: httpx.AsyncClient) -> ChatModel:

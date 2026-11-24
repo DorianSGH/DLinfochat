@@ -3,6 +3,7 @@
     fastapi dev app/main.py     (auto-reload, http://127.0.0.1:8000/docs)
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from pydantic import BaseModel, StringConstraints
 
 from app.config import get_settings
 from app.db import engine
-from app.providers import make_chat_model, make_embedder, ollama_client
+from app.providers import make_chat_model, make_embedder, make_reranker, ollama_client
 from app.providers.base import ChatModel
 from app.rag.prompt import build_messages
 from app.rag.retrieve import Retriever, Source, build_retriever
@@ -27,8 +28,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Built once at startup and shared by all requests: one pooled HTTP client to
     # Ollama, one DB engine (already module-level in app.db).
     settings = get_settings()
+    # Loading a reranker takes a few seconds; do it off the event loop.
+    reranker = await asyncio.to_thread(make_reranker, settings.reranker_model)
     async with ollama_client(settings) as ollama:
-        app.state.retriever = build_retriever(settings, make_embedder(settings, ollama))
+        app.state.retriever = build_retriever(settings, make_embedder(settings, ollama), reranker)
         app.state.chat_model = make_chat_model(settings, ollama)
         yield
     await engine.dispose()

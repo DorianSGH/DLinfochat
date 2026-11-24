@@ -30,6 +30,16 @@ class Embedder(Protocol):
         ...
 
 
+class Reranker(Protocol):
+    async def rerank(self, query: str, documents: list[str]) -> list[float]:
+        """A relevance score per document, in the order given. Higher = more relevant.
+
+        Unlike an embedder, which encodes query and document separately, a reranker reads
+        each (query, document) pair together, so it is slower but judges relevance better.
+        """
+        ...
+
+
 class ChatModel(Protocol):
     def stream(self, messages: list[Message]) -> AsyncIterator[str]:
         """Yield the answer text as it is generated."""

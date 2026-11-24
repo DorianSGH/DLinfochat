@@ -9,7 +9,7 @@ import time
 
 from app.config import get_settings
 from app.db import engine
-from app.providers import make_chat_model, make_embedder, ollama_client
+from app.providers import make_chat_model, make_embedder, make_reranker, ollama_client
 from app.rag.prompt import build_messages
 from app.rag.retrieve import build_retriever
 
@@ -17,8 +17,9 @@ from app.rag.retrieve import build_retriever
 async def main(question: str) -> None:
     settings = get_settings()
     try:
+        reranker = await asyncio.to_thread(make_reranker, settings.reranker_model)
         async with ollama_client(settings) as ollama:
-            retriever = build_retriever(settings, make_embedder(settings, ollama))
+            retriever = build_retriever(settings, make_embedder(settings, ollama), reranker)
             start = time.perf_counter()
             sources = await retriever.search(question)
             retrieval_s = time.perf_counter() - start
@@ -26,6 +27,8 @@ async def main(question: str) -> None:
             print(f"Sources ({retrieval_s:.2f}s):")
             for n, s in enumerate(sources, 1):
                 ranks = f"semantic #{s.semantic_rank or '-'}, keyword #{s.keyword_rank or '-'}"
+                if s.rerank_score is not None:
+                    ranks += f", rerank {s.rerank_score:.3f}"
                 print(f"  [{n}] {s.title} > {s.section or '(intro)'}   ({ranks})")
             print()
 

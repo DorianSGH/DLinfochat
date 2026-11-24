@@ -1,0 +1,5 @@
+# Optional: local cross-encoder reranker (set RERANKER_MODEL to enable).
+# Install PyTorch with CUDA first, matching your GPU driver, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu130
+# (without that step pip installs a CPU-only PyTorch, which works but is much slower)
+sentence-transformers>=5.0

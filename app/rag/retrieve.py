@@ -1,21 +1,25 @@
-"""Hybrid retrieval: semantic (vector) + keyword (full-text) search, fused with RRF.
+"""Hybrid retrieval: semantic (vector) + keyword (full-text) search, fused with RRF,
+optionally re-scored by a cross-encoder reranker.
 
-Why both: vectors match meaning ("money" finds "souls"), keywords match exact names that
-embeddings blur ("Siphon Life", "Cold Front"). Each catches what the other misses.
+Why both searches: vectors match meaning ("money" finds "souls"), keywords match exact
+names that embeddings blur ("Siphon Life", "Cold Front"). Each catches what the other
+misses. Why a reranker: both searches are fast but shallow; the reranker reads question
+and chunk together, so it judges relevance better, but it's too slow to run on every
+chunk, so it only re-orders the fused shortlist.
 """
 
 from collections import defaultdict
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from sqlalchemy import Text, cast, func, select
+from sqlalchemy import Row, Text, cast, func, select
 from sqlalchemy.dialects.postgresql import TSQUERY
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import Settings
 from app.db import Chunk, Page, SessionLocal
-from app.providers.base import Embedder
+from app.providers.base import Embedder, Reranker
 
 
 @dataclass
@@ -28,6 +32,7 @@ class Source:
     score: float  # fused RRF score
     semantic_rank: int | None  # 1 = best vector match; None = not in vector results
     keyword_rank: int | None  # 1 = best keyword match; None = not in keyword results
+    rerank_score: float | None = None  # cross-encoder score, when reranking is on
 
 
 def reciprocal_rank_fusion(rankings: list[list[int]], k: int = 60) -> list[tuple[int, float]]:
@@ -73,12 +78,16 @@ class Retriever:
         candidates: int = 30,
         top_k: int = 6,
         rrf_k: int = 60,
+        reranker: Reranker | None = None,
+        rerank_depth: int = 30,
     ) -> None:
         self.embedder = embedder
         self.sessionmaker = sessionmaker
         self.candidate_limit = candidates
         self.top_k = top_k
         self.rrf_k = rrf_k
+        self.reranker = reranker
+        self.rerank_depth = rerank_depth
 
     async def candidates(self, question: str) -> tuple[list[int], list[int]]:
         """Chunk ids from each method separately, best first: (semantic, keyword).
@@ -109,14 +118,16 @@ class Retriever:
 
     async def search(self, question: str) -> list[Source]:
         semantic_ids, keyword_ids = await self.candidates(question)
-        fused = reciprocal_rank_fusion([semantic_ids, keyword_ids], self.rrf_k)[: self.top_k]
-        async with self.sessionmaker() as session:
-            rows = await session.execute(
-                select(Chunk.id, Chunk.section, Chunk.content, Page.title, Page.url)
-                .join(Chunk.page)
-                .where(Chunk.id.in_([chunk_id for chunk_id, _ in fused]))
-            )
-            by_id = {row.id: row for row in rows}
+        fused = reciprocal_rank_fusion([semantic_ids, keyword_ids], self.rrf_k)
+        fused_scores = dict(fused)
+        # Without a reranker the fused order is final. With one, a deeper shortlist is
+        # re-scored and re-ordered, then cut to top_k.
+        ids = [chunk_id for chunk_id, _ in fused[: self.rerank_depth if self.reranker else self.top_k]]
+        rows = await self.load(ids)
+        scores: dict[int, float] = {}
+        if self.reranker:
+            scores = await self.rerank_scores(question, rows)
+            ids = rerank_order(ids, scores, depth=len(ids))
 
         return [
             Source(
@@ -125,24 +136,59 @@ class Retriever:
                 section=row.section,
                 url=section_url(row.url, row.section),
                 content=row.content,
-                score=score,
+                score=fused_scores[chunk_id],
                 semantic_rank=_rank_of(chunk_id, semantic_ids),
                 keyword_rank=_rank_of(chunk_id, keyword_ids),
+                rerank_score=scores.get(chunk_id),
             )
-            for chunk_id, score in fused
-            if (row := by_id.get(chunk_id))
+            for chunk_id in ids[: self.top_k]
+            if (row := rows.get(chunk_id))
         ]
+
+    async def load(self, chunk_ids: list[int]) -> dict[int, Row]:
+        """Chunk text and page info by chunk id."""
+        if not chunk_ids:
+            return {}
+        async with self.sessionmaker() as session:
+            result = await session.execute(
+                select(Chunk.id, Chunk.section, Chunk.content, Page.title, Page.url)
+                .join(Chunk.page)
+                .where(Chunk.id.in_(chunk_ids))
+            )
+            return {row.id: row for row in result}
+
+    async def rerank_scores(self, question: str, rows: dict[int, Row]) -> dict[int, float]:
+        """Cross-encoder score per chunk id. Requires a reranker."""
+        if self.reranker is None:
+            raise RuntimeError("No reranker configured")
+        ids = list(rows)
+        scores = await self.reranker.rerank(question, [rows[i].content for i in ids])
+        return dict(zip(ids, scores, strict=True))
+
+
+def rerank_order(ranking: list[int], scores: dict[int, float], depth: int) -> list[int]:
+    """Re-order the first `depth` items by score, best first; items after keep their place.
+
+    sorted() is stable, so equal scores keep their fused order. Items without a score
+    (shouldn't happen) sink to the bottom of the re-ordered part.
+    """
+    head = sorted(ranking[:depth], key=lambda item: scores.get(item, float("-inf")), reverse=True)
+    return head + ranking[depth:]
 
 
 def _rank_of(item: int, ranking: list[int]) -> int | None:
     return ranking.index(item) + 1 if item in ranking else None
 
 
-def build_retriever(settings: Settings, embedder: Embedder) -> Retriever:
+def build_retriever(
+    settings: Settings, embedder: Embedder, reranker: Reranker | None = None
+) -> Retriever:
     return Retriever(
         embedder,
         SessionLocal,
         candidates=settings.retrieval_candidates,
         top_k=settings.retrieval_top_k,
         rrf_k=settings.rrf_k,
+        reranker=reranker,
+        rerank_depth=settings.rerank_depth,
     )

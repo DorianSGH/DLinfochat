@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # ...and this many fused chunks go to the LLM (6 x <=1500 chars fits in chat_num_ctx).
     retrieval_top_k: int = 6
     rrf_k: int = 60
+    # Cross-encoder that re-scores the fused candidates before the top k are picked, e.g.
+    # "BAAI/bge-reranker-v2-m3". Empty = no reranking (and no PyTorch needed).
+    reranker_model: str = ""
+    # How many fused candidates the reranker re-scores. Evals: depth 10 missed answers
+    # ranked 11-20 (hit@6 94%), depth 20 and 30 tied (99%), so 20 for less work.
+    rerank_depth: int = 20
 
 
 @lru_cache
