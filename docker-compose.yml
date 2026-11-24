@@ -1,0 +1,23 @@
+services:
+  db:
+    # Pinned: 0.8.7 fixes a buffer overflow in IVFFlat index builds.
+    image: pgvector/pgvector:0.8.7-pg18
+    environment:
+      POSTGRES_USER: dlinfochat
+      POSTGRES_PASSWORD: dlinfochat
+      POSTGRES_DB: dlinfochat
+    ports:
+      # Host port 5433 because a local Postgres already uses 5432.
+      # Bound to 127.0.0.1 so the dev password is never reachable from the network.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      # Postgres 18+ images keep data under /var/lib/postgresql/<major>/, so mount the parent.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dlinfochat -d dlinfochat"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
